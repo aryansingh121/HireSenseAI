@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.panel {
+  @apply rounded-lg border border-slate-200 bg-white shadow-soft;
+}
+
+.icon-button {
+  @apply inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 transition hover:border-tealcore hover:text-tealcore focus:outline-none focus:ring-2 focus:ring-tealcore focus:ring-offset-2;
+}
+
+.command-button {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg bg-tealcore px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-tealcore focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300;
+}
+
+.secondary-button {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-500 focus:outline-none focus:ring-2 focus:ring-tealcore focus:ring-offset-2;
+}
