@@ -5,7 +5,7 @@ import { interviewQuestions } from "../data/mockData.js";
 import useSpeechRecognition from "../hooks/useSpeechRecognition.js";
 import api from "../utils/api.js";
 
-export default function InterviewConsole() {
+export default function InterviewConsole({ onAnswerAnalyzed }) {
   const [answer, setAnswer] = useState("");
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [feedback, setFeedback] = useState(null);
@@ -27,13 +27,16 @@ export default function InterviewConsole() {
         answer: combinedAnswer
       });
       setFeedback(data);
+      onAnswerAnalyzed?.(data);
     } catch {
-      setFeedback({
+      const fallbackFeedback = {
         score: 78,
         strengths: ["Structured answer", "Relevant examples"],
         improvements: ["Add measurable impact", "Close with a clearer trade-off"],
         sentiment: "confident"
-      });
+      };
+      setFeedback(fallbackFeedback);
+      onAnswerAnalyzed?.(fallbackFeedback);
     } finally {
       setLoading(false);
     }

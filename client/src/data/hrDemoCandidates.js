@@ -1,4 +1,4 @@
-export const demoCandidates = [
+export const hrDemoCandidates = [
   {
     id: "cand-01",
     name: "Aarav Mehta",
@@ -106,24 +106,5 @@ export const demoCandidates = [
       highlights: ["Explained caching trade-offs", "Handled API failures thoughtfully"],
       risks: ["Needs stronger testing examples", "Presentation lacked confidence"]
     }
-  }
-];
-
-export const demoReports = [
-  {
-    id: "rep-101",
-    candidateName: "Aarav Mehta",
-    role: "Frontend Engineer",
-    recommendation: "Strong shortlist",
-    summary:
-      "Clear React fundamentals, steady delivery under pressure, and solid trade-off reasoning.",
-    scores: {
-      communication: 86,
-      coding: 79,
-      confidence: 83,
-      overall: 83
-    },
-    strengths: ["State management", "Debugging process", "Clear communication"],
-    risks: ["Needs more production performance examples"]
   }
 ];

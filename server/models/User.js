@@ -23,8 +23,13 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["hr", "admin", "interviewer"],
-      default: "hr"
+      enum: ["candidate", "hiring_manager"],
+      default: "candidate"
+    },
+    demoInterviewsLeft: {
+      type: Number,
+      default: 3,
+      min: 0
     }
   },
   { timestamps: true }

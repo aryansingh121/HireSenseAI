@@ -1,15 +1,17 @@
 import express from "express";
 import {
   createCandidate,
+  getCandidate,
   listCandidates,
   updateCandidateStatus
 } from "../controllers/candidateController.js";
-import { protect } from "../middleware/auth.js";
+import { authorizeRole, protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
-router.get("/", listCandidates);
-router.post("/", protect, createCandidate);
-router.patch("/:id/status", protect, updateCandidateStatus);
+router.get("/", protect, authorizeRole("hiring_manager"), listCandidates);
+router.get("/:id", protect, authorizeRole("hiring_manager"), getCandidate);
+router.post("/", protect, authorizeRole("hiring_manager"), createCandidate);
+router.patch("/:id/status", protect, authorizeRole("hiring_manager"), updateCandidateStatus);
 
 export default router;

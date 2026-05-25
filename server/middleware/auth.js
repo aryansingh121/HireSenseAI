@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
 import { isDbReady } from "../config/db.js";
+import User from "../models/User.js";
 
 export async function protect(req, res, next) {
   const header = req.headers.authorization || "";
@@ -20,9 +20,10 @@ export async function protect(req, res, next) {
     } else {
       req.user = {
         id: decoded.id,
-        name: decoded.name || "Demo HR",
+        name: decoded.name || "Demo User",
         email: decoded.email,
-        role: decoded.role || "hr"
+        role: decoded.role || "candidate",
+        demoInterviewsLeft: decoded.demoInterviewsLeft ?? 3
       };
     }
 
@@ -30,4 +31,22 @@ export async function protect(req, res, next) {
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
   }
+}
+
+export function authorizeRole(...roles) {
+  const allowedRoles = roles.flat();
+
+  return function authorizeRoleMiddleware(req, res, next) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: "You are not authorized to access this resource"
+      });
+    }
+
+    return next();
+  };
 }

@@ -2,6 +2,20 @@ import { LogIn } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { getRoleHomePath } from "../utils/roleRoutes.js";
+
+const demoAccounts = [
+  {
+    label: "Hiring manager",
+    email: "hr@hiresense.ai",
+    password: "password123"
+  },
+  {
+    label: "Candidate",
+    email: "candidate@hiresense.ai",
+    password: "password123"
+  }
+];
 
 export default function Login() {
   const [form, setForm] = useState({ email: "hr@hiresense.ai", password: "password123" });
@@ -15,8 +29,8 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await login(form);
-      navigate("/");
+      const user = await login(form);
+      navigate(getRoleHomePath(user.role));
     } catch {
       setError("Login failed. Start the API or use seeded credentials after setup.");
     } finally {
@@ -32,8 +46,8 @@ export default function Login() {
             <LogIn size={22} />
           </span>
           <div>
-            <h1 className="text-2xl font-bold">HR Login</h1>
-            <p className="text-sm font-medium text-slate-500">JWT authentication</p>
+            <h1 className="text-2xl font-bold">Sign in</h1>
+            <p className="text-sm font-medium text-slate-500">Candidate or hiring manager</p>
           </div>
         </div>
 
@@ -63,18 +77,39 @@ export default function Login() {
           <LogIn size={16} />
           {loading ? "Signing in" : "Sign in"}
         </button>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {demoAccounts.map((account) => (
+            <button
+              className="secondary-button w-full"
+              key={account.email}
+              type="button"
+              onClick={() =>
+                setForm({
+                  email: account.email,
+                  password: account.password
+                })
+              }
+            >
+              {account.label}
+            </button>
+          ))}
+        </div>
       </form>
 
       <aside className="panel p-6">
         <h2 className="text-xl font-bold">Access scope</h2>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {["Candidate reports", "Interview sessions", "Coding scores", "Resume analytics"].map(
-            (item) => (
-              <div className="rounded-lg border border-slate-200 p-4 text-sm font-bold" key={item}>
-                {item}
-              </div>
-            )
-          )}
+          {[
+            "Candidate practice",
+            "Resume analytics",
+            "Hiring reports",
+            "Interview sessions"
+          ].map((item) => (
+            <div className="rounded-lg border border-slate-200 p-4 text-sm font-bold" key={item}>
+              {item}
+            </div>
+          ))}
         </div>
       </aside>
     </section>

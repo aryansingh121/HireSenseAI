@@ -8,11 +8,22 @@ function signToken(user) {
       id: user.id || user._id,
       email: user.email,
       name: user.name,
-      role: user.role
+      role: user.role,
+      demoInterviewsLeft: user.demoInterviewsLeft
     },
     process.env.JWT_SECRET || "dev-secret",
     { expiresIn: "7d" }
   );
+}
+
+function toSafeUser(user) {
+  return {
+    id: user.id || user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    demoInterviewsLeft: user.demoInterviewsLeft
+  };
 }
 
 export async function register(req, res, next) {
@@ -22,12 +33,7 @@ export async function register(req, res, next) {
     }
 
     const user = await User.create(req.body);
-    const safeUser = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    };
+    const safeUser = toSafeUser(user);
 
     return res.status(201).json({ user: safeUser, token: signToken(safeUser) });
   } catch (error) {
@@ -40,16 +46,30 @@ export async function login(req, res, next) {
     const { email, password } = req.body;
 
     if (!isDbReady()) {
-      const demoEmail = process.env.DEMO_EMAIL || "hr@hiresense.ai";
-      const demoPassword = process.env.DEMO_PASSWORD || "password123";
+      const demoUsers = [
+        {
+          id: "demo-hiring-manager",
+          name: "Demo Hiring Manager",
+          email: process.env.DEMO_EMAIL || "hr@hiresense.ai",
+          password: process.env.DEMO_PASSWORD || "password123",
+          role: "hiring_manager"
+        },
+        {
+          id: "demo-candidate",
+          name: "Demo Candidate",
+          email: process.env.DEMO_CANDIDATE_EMAIL || "candidate@hiresense.ai",
+          password: process.env.DEMO_CANDIDATE_PASSWORD || "password123",
+          role: "candidate",
+          demoInterviewsLeft: 3
+        }
+      ];
 
-      if (email === demoEmail && password === demoPassword) {
-        const user = {
-          id: "demo-user",
-          name: "Demo HR",
-          email: demoEmail,
-          role: "hr"
-        };
+      const demoUser = demoUsers.find(
+        (user) => user.email === email && user.password === password
+      );
+
+      if (demoUser) {
+        const { password: _password, ...user } = demoUser;
         return res.json({ user, token: signToken(user) });
       }
 
@@ -62,12 +82,7 @@ export async function login(req, res, next) {
     }
 
     return res.json({
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      },
+      user: toSafeUser(user),
       token: signToken(user)
     });
   } catch (error) {

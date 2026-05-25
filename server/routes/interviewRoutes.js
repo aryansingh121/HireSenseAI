@@ -1,12 +1,21 @@
 import express from "express";
 import {
   analyzeAnswer,
-  createInterviewSession
+  completeDemoInterview,
+  createInterviewLink,
+  createInterviewSession,
+  getDemoInterviewStatus,
+  startDemoInterview
 } from "../controllers/interviewController.js";
+import { authorizeRole, protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
 router.post("/", createInterviewSession);
+router.post("/links", protect, authorizeRole("hiring_manager"), createInterviewLink);
+router.get("/demo/status", protect, authorizeRole("candidate"), getDemoInterviewStatus);
+router.post("/demo/start", protect, authorizeRole("candidate"), startDemoInterview);
+router.post("/demo/complete", protect, authorizeRole("candidate"), completeDemoInterview);
 router.post("/analyze-answer", analyzeAnswer);
 
 export default router;

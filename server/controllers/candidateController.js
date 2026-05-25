@@ -13,6 +13,22 @@ export async function listCandidates(req, res, next) {
   }
 }
 
+export async function getCandidate(req, res, next) {
+  try {
+    if (!isDbReady()) {
+      const candidate = demoCandidates.find((item) => item.id === req.params.id);
+      if (!candidate) return res.status(404).json({ message: "Candidate not found" });
+      return res.json(candidate);
+    }
+
+    const candidate = await Candidate.findById(req.params.id);
+    if (!candidate) return res.status(404).json({ message: "Candidate not found" });
+    return res.json(candidate);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function createCandidate(req, res, next) {
   try {
     if (!isDbReady()) {
