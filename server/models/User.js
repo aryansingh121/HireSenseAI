@@ -28,7 +28,9 @@ const userSchema = new mongoose.Schema(
     },
     demoInterviewsLeft: {
       type: Number,
-      default: 3,
+      default: function defaultDemoInterviewsLeft() {
+        return this.role === "candidate" ? 3 : 0;
+      },
       min: 0
     }
   },

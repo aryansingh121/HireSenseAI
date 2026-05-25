@@ -22,6 +22,15 @@ export function AuthProvider({ children }) {
     return normalizedUser;
   }
 
+  async function register(payload) {
+    const { data } = await api.post("/auth/register", payload);
+    const normalizedUser = normalizeUser(data.user);
+    localStorage.setItem("hiresense_token", data.token);
+    localStorage.setItem("hiresense_user", JSON.stringify(normalizedUser));
+    setUser(normalizedUser);
+    return normalizedUser;
+  }
+
   function logout() {
     localStorage.removeItem("hiresense_token");
     localStorage.removeItem("hiresense_user");
@@ -34,7 +43,10 @@ export function AuthProvider({ children }) {
     setUser(normalizedUser);
   }
 
-  const value = useMemo(() => ({ user, login, logout, updateUser }), [user]);
+  const value = useMemo(
+    () => ({ user, login, logout, register, updateUser }),
+    [user]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -5,6 +5,7 @@
   "description": "AI interview assistant and smart hiring platform built with the MERN stack.",
   "scripts": {
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
     "client": "npm run dev --prefix client",
     "server": "npm run dev --prefix server",
     "install:all": "npm install && npm install --prefix client && npm install --prefix server"

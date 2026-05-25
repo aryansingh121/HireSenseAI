@@ -17,22 +17,42 @@ function signToken(user) {
 }
 
 function toSafeUser(user) {
+  const role = user.role === "hiring_manager" ? "hiring_manager" : "candidate";
+
   return {
     id: user.id || user._id,
     name: user.name,
     email: user.email,
-    role: user.role,
-    demoInterviewsLeft: user.demoInterviewsLeft
+    role,
+    demoInterviewsLeft: role === "candidate" ? user.demoInterviewsLeft ?? 3 : 0
   };
 }
 
 export async function register(req, res, next) {
   try {
+    const role = req.body.role === "hiring_manager" ? "hiring_manager" : "candidate";
+
     if (!isDbReady()) {
-      return res.status(503).json({ message: "MongoDB is required for registration" });
+      const user = {
+        id: `mock-${role}-${Date.now()}`,
+        name: req.body.name || (role === "candidate" ? "Candidate User" : "Hiring Manager"),
+        email: req.body.email,
+        role,
+        demoInterviewsLeft: role === "candidate" ? 3 : 0
+      };
+
+      if (!user.email || !req.body.password) {
+        return res.status(400).json({ message: "Name, email, and password are required" });
+      }
+
+      return res.status(201).json({ user, token: signToken(user) });
     }
 
-    const user = await User.create(req.body);
+    const user = await User.create({
+      ...req.body,
+      role,
+      demoInterviewsLeft: role === "candidate" ? 3 : 0
+    });
     const safeUser = toSafeUser(user);
 
     return res.status(201).json({ user: safeUser, token: signToken(safeUser) });
