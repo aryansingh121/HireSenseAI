@@ -1,6 +1,6 @@
 import { Crown, Mic, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import InterviewConsole from "../components/interview/InterviewConsole.jsx";
+import AvatarConsole from "../components/interview/AvatarConsole.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../utils/api.js";
 
@@ -147,7 +147,7 @@ export default function CandidateInterview() {
   if (session) {
     return (
       <div className="fixed inset-0 z-50">
-        <InterviewConsole session={session} onEnd={completeDemoInterview} />
+        <AvatarConsole session={session} onEnd={completeDemoInterview} />
       </div>
     );
   }

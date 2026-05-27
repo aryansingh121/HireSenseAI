@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "axios": "^1.7.9",
     "face-api.js": "^0.22.2",
     "framer-motion": "^11.15.0",
@@ -20,7 +22,8 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.1",
     "recharts": "^3.8.1",
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

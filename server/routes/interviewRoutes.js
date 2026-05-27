@@ -6,7 +6,8 @@ import {
   createInterviewSession,
   getDemoInterviewStatus,
   startDemoInterview,
-  askNextQuestion
+  askNextQuestion,
+  chatWithLLM
 } from "../controllers/interviewController.js";
 import { authorizeRole, protect } from "../middleware/auth.js";
 
@@ -19,5 +20,6 @@ router.post("/demo/start", protect, authorizeRole("candidate"), startDemoIntervi
 router.post("/demo/complete", protect, authorizeRole("candidate"), completeDemoInterview);
 router.post("/analyze-answer", analyzeAnswer);
 router.post("/ask", askNextQuestion);
+router.post("/chat", chatWithLLM);
 
 export default router;

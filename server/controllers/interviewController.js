@@ -2,6 +2,7 @@ import { isDbReady } from "../config/db.js";
 import InterviewSession from "../models/InterviewSession.js";
 import User from "../models/User.js";
 import { analyzeInterviewAnswer } from "../services/aiService.js";
+import { GoogleGenAI } from "@google/genai";
 
 const demoInterviewUsage = new Map();
 
@@ -283,5 +284,51 @@ export async function askNextQuestion(req, res, next) {
     });
   } catch (error) {
     return next(error);
+  }
+}
+
+export async function chatWithLLM(req, res, next) {
+  try {
+    const { sessionId, role, transcript, history } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ 
+        error: "GEMINI_API_KEY is not configured.",
+        question: "I'm sorry, my AI brain is disconnected because the API key is missing. Please check your backend .env file.",
+        isFinished: false 
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    
+    let systemPrompt = `You are an expert Technical Hiring Manager interviewing a candidate for a ${role} position. 
+Keep your responses short, conversational, and strictly related to technical interviewing. 
+Do not output markdown, formatting, or special characters because your response will be read aloud by a Text-to-Speech engine.
+If the candidate says they are done or want to finish, conclude the interview.
+Here is the conversation history:
+${history || 'No previous history.'}
+
+Candidate just said: "${transcript}"
+
+Generate your next short conversational response.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: systemPrompt,
+    });
+    
+    const text = response.text || "I'm sorry, I couldn't process that.";
+    const isFinished = text.toLowerCase().includes("conclude") || text.toLowerCase().includes("thank you for your time");
+
+    return res.json({
+      question: text,
+      isFinished
+    });
+  } catch (error) {
+    console.error("LLM Error:", error);
+    return res.json({
+      question: "I had a connection error with my brain. Could you repeat that?",
+      isFinished: false
+    });
   }
 }
