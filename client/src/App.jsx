@@ -7,6 +7,7 @@ import HRLayout from "./layouts/HRLayout.jsx";
 import Login from "./pages/Login.jsx";
 import { getRoleHomePath } from "./utils/roleRoutes.js";
 
+
 const CandidateInterview = lazy(() => import("./pages/CandidateInterview.jsx"));
 const CandidateReport = lazy(() => import("./pages/CandidateReport.jsx"));
 const CompareCandidates = lazy(() => import("./pages/CompareCandidates.jsx"));
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Login />} />
+
 
         <Route
           path="/candidate"

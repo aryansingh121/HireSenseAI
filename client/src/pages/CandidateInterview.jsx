@@ -1,6 +1,6 @@
 import { Crown, Mic, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
-import InterviewConsole from "../components/InterviewConsole.jsx";
+import InterviewConsole from "../components/interview/InterviewConsole.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../utils/api.js";
 
@@ -144,6 +144,14 @@ export default function CandidateInterview() {
     return <UpgradeState />;
   }
 
+  if (session) {
+    return (
+      <div className="fixed inset-0 z-50">
+        <InterviewConsole session={session} onEnd={completeDemoInterview} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       <section className="panel p-5">
@@ -187,15 +195,11 @@ export default function CandidateInterview() {
         {message && <p className="mt-4 text-sm font-semibold text-slate-600">{message}</p>}
       </section>
 
-      {session ? (
-        <InterviewConsole onAnswerAnalyzed={() => setHasAnswered(true)} />
-      ) : (
-        <section className="panel p-6">
-          <p className="text-sm font-semibold text-slate-600">
-            Start a demo interview to unlock the AI question console.
-          </p>
-        </section>
-      )}
+      <section className="panel p-6">
+        <p className="text-sm font-semibold text-slate-600">
+          Start a demo interview to unlock the AI question console.
+        </p>
+      </section>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import rateLimit from "express-rate-limit";
+import { createServer } from "http";
 import connectDB, { isDbReady } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import candidateRoutes from "./routes/candidateRoutes.js";
@@ -9,11 +10,14 @@ import codingRoutes from "./routes/codingRoutes.js";
 import interviewRoutes from "./routes/interviewRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import resumeRoutes from "./routes/resumeRoutes.js";
+import { initSocket } from "./socket.js";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+const httpServer = createServer(app);
+initSocket(httpServer);
 
 await connectDB();
 
@@ -59,6 +63,6 @@ app.use((error, req, res, next) => {
   });
 });
 
-app.listen(port, () => {
+httpServer.listen(port, () => {
   console.log(`HireSense AI API running on port ${port}`);
 });

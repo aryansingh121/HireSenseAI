@@ -257,3 +257,31 @@ export async function analyzeAnswer(req, res, next) {
     return next(error);
   }
 }
+
+export async function askNextQuestion(req, res, next) {
+  try {
+    const { sessionId, currentQuestionIndex, role } = req.body;
+    
+    const key = role?.toLowerCase().includes("back") ? "backend" : 
+                role?.toLowerCase().includes("front") ? "frontend" : "default";
+    
+    const questions = roleQuestions[key];
+    const index = currentQuestionIndex || 0;
+    
+    if (index >= questions.length) {
+      return res.json({
+        question: "Thank you for your time. That concludes our technical interview.",
+        isFinished: true
+      });
+    }
+
+    const nextQuestion = questions[index];
+    
+    return res.json({
+      question: nextQuestion,
+      isFinished: false
+    });
+  } catch (error) {
+    return next(error);
+  }
+}

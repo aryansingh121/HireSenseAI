@@ -121,7 +121,18 @@ export default function Login() {
                 ].join(" ")}
                 key={item.role}
                 type="button"
-                onClick={() => setForm({ ...form, role: item.role })}
+                onClick={() => {
+                  const demoAccount = demoAccounts.find(acc => 
+                    (item.role === 'candidate' && acc.label === 'Candidate') || 
+                    (item.role === 'hiring_manager' && acc.label === 'Hiring manager')
+                  );
+                  
+                  if (mode === 'login' && demoAccount) {
+                    setForm({ ...form, role: item.role, email: demoAccount.email, password: demoAccount.password });
+                  } else {
+                    setForm({ ...form, role: item.role });
+                  }
+                }}
               >
                 <Icon size={20} />
                 <span className="text-sm font-bold">{item.label}</span>
@@ -178,25 +189,7 @@ export default function Login() {
               : "Create account"}
         </button>
 
-        {mode === "login" && <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {demoAccounts.map((account) => (
-            <button
-              className="secondary-button w-full"
-              key={account.email}
-              type="button"
-              onClick={() =>
-                setForm({
-                  ...form,
-                  email: account.email,
-                  password: account.password,
-                  role: account.label === "Candidate" ? "candidate" : "hiring_manager"
-                })
-              }
-            >
-              {account.label}
-            </button>
-          ))}
-        </div>}
+
       </form>
 
       <aside className="panel p-6">
