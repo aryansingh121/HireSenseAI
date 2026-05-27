@@ -1,6 +1,8 @@
 import { Crown, Mic, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import AvatarConsole from "../components/interview/AvatarConsole.jsx";
+import ErrorBoundary from "../components/ErrorBoundary.jsx";
+import { InterviewProvider } from "../context/InterviewContext.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import api from "../utils/api.js";
 
@@ -147,7 +149,11 @@ export default function CandidateInterview() {
   if (session) {
     return (
       <div className="fixed inset-0 z-50">
-        <AvatarConsole session={session} onEnd={completeDemoInterview} />
+        <ErrorBoundary>
+          <InterviewProvider>
+            <AvatarConsole session={session} onEnd={completeDemoInterview} />
+          </InterviewProvider>
+        </ErrorBoundary>
       </div>
     );
   }

@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 
 export default function useTextToSpeech() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voices, setVoices] = useState([]);
+  
+  const speechQueueRef = useRef([]);
+  const isCurrentlySpeakingRef = useRef(false);
+  const startTimeoutRef = useRef(null);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -14,69 +18,85 @@ export default function useTextToSpeech() {
 
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
+      stop();
     };
   }, []);
 
-  const speak = useCallback(
-    (text, onEnd) => {
-      if (!window.speechSynthesis) {
-        console.warn("SpeechSynthesis API not supported");
-        if (onEnd) onEnd();
-        return;
+  const processQueue = useCallback(() => {
+    if (isCurrentlySpeakingRef.current || speechQueueRef.current.length === 0) {
+      if (speechQueueRef.current.length === 0 && isCurrentlySpeakingRef.current === false) {
+        setIsSpeaking(false);
       }
+      return;
+    }
 
-      window.speechSynthesis.cancel(); // Cancel any ongoing speech
+    isCurrentlySpeakingRef.current = true;
+    setIsSpeaking(true);
 
-      const utterance = new SpeechSynthesisUtterance(text);
-      const preferredVoice = voices.find(
-        (v) => v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Samantha"))
-      );
-      if (preferredVoice) utterance.voice = preferredVoice;
+    const chunk = speechQueueRef.current.shift();
+    const utterance = new SpeechSynthesisUtterance(chunk.text);
+    
+    const preferredVoice = voices.find(
+      (v) => v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Samantha") || v.name.includes("Microsoft"))
+    );
+    if (preferredVoice) utterance.voice = preferredVoice;
 
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+    utterance.rate = 1.05; // Slightly faster for conversational realism
+    utterance.pitch = 1.0;
 
-      let startTimeout = setTimeout(() => {
-        console.warn("Speech synthesis blocked or timed out. Bypassing.");
-        window._utterances = window._utterances.filter(u => u !== utterance);
-        setIsSpeaking(false);
-        if (onEnd) onEnd();
-      }, 3000);
+    startTimeoutRef.current = setTimeout(() => {
+      console.warn("Speech synthesis blocked or timed out. Bypassing chunk.");
+      isCurrentlySpeakingRef.current = false;
+      processQueue();
+    }, 3000);
 
-      utterance.onstart = () => {
-        clearTimeout(startTimeout);
-        setIsSpeaking(true);
-      };
-      utterance.onend = () => {
-        clearTimeout(startTimeout);
-        setIsSpeaking(false);
-        // Clear reference to prevent memory leaks
-        window._utterances = window._utterances.filter(u => u !== utterance);
-        if (onEnd) onEnd();
-      };
-      utterance.onerror = (e) => {
-        clearTimeout(startTimeout);
-        console.error("SpeechSynthesis error:", e);
-        setIsSpeaking(false);
-        window._utterances = window._utterances.filter(u => u !== utterance);
-        if (onEnd) onEnd();
-      };
+    utterance.onstart = () => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+    };
 
-      // Store in global scope to prevent Chrome garbage collection bug
-      window._utterances = window._utterances || [];
-      window._utterances.push(utterance);
+    utterance.onend = () => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+      isCurrentlySpeakingRef.current = false;
+      if (chunk.onEnd) chunk.onEnd();
+      processQueue(); // Automatically play next chunk in queue
+    };
 
-      window.speechSynthesis.speak(utterance);
-    },
-    [voices]
-  );
+    utterance.onerror = (e) => {
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+      console.error("SpeechSynthesis error:", e);
+      isCurrentlySpeakingRef.current = false;
+      processQueue();
+    };
+
+    // Store globally to prevent Chrome garbage collection bug
+    window._utterances = window._utterances || [];
+    window._utterances.push(utterance);
+    
+    // Clean up old utterances
+    if (window._utterances.length > 5) {
+      window._utterances.shift();
+    }
+
+    window.speechSynthesis.speak(utterance);
+  }, [voices]);
+
+  const queueSpeech = useCallback((text, onEnd) => {
+    if (!window.speechSynthesis) return;
+    if (!text || text.trim() === "") return;
+
+    speechQueueRef.current.push({ text, onEnd });
+    processQueue();
+  }, [processQueue]);
 
   const stop = useCallback(() => {
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel();
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
+      speechQueueRef.current = [];
+      isCurrentlySpeakingRef.current = false;
       setIsSpeaking(false);
     }
   }, []);
 
-  return { isSpeaking, speak, stop, voices };
+  return { isSpeaking, queueSpeech, stop, voices };
 }

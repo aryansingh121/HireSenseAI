@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { registerInterviewHandlers } from "./sockets/interviewSocket.js";
 
 export function initSocket(httpServer) {
   const io = new Server(httpServer, {
@@ -10,6 +11,9 @@ export function initSocket(httpServer) {
 
   io.on("connection", (socket) => {
     console.log(`[Socket.io] Client connected: ${socket.id}`);
+    
+    // Register the real-time AI conversational handlers
+    registerInterviewHandlers(io, socket);
 
     // Receive audio chunks from client
     socket.on("audio_stream", (data) => {

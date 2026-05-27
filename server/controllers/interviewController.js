@@ -292,9 +292,9 @@ export async function chatWithLLM(req, res, next) {
     const { sessionId, role, transcript, history } = req.body;
     
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ 
+      return res.status(200).json({ 
         error: "GEMINI_API_KEY is not configured.",
-        question: "I'm sorry, my AI brain is disconnected because the API key is missing. Please check your backend .env file.",
+        question: "I'm sorry, my AI brain is disconnected because the Gemini API key is missing. Please check your backend environment file.",
         isFinished: false 
       });
     }
@@ -312,20 +312,35 @@ Candidate just said: "${transcript}"
 
 Generate your next short conversational response.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: systemPrompt,
-    });
+    let retries = 3;
+    let delay = 1000;
     
-    const text = response.text || "I'm sorry, I couldn't process that.";
-    const isFinished = text.toLowerCase().includes("conclude") || text.toLowerCase().includes("thank you for your time");
+    while (retries > 0) {
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: systemPrompt,
+        });
+        
+        const text = response.text || "I'm sorry, I couldn't process that.";
+        const isFinished = text.toLowerCase().includes("conclude") || text.toLowerCase().includes("thank you for your time");
 
-    return res.json({
-      question: text,
-      isFinished
-    });
+        return res.json({
+          question: text,
+          isFinished
+        });
+      } catch (generationError) {
+        retries -= 1;
+        console.error(`LLM Generation Failed. Retries left: ${retries}. Error:`, generationError.message);
+        if (retries === 0) {
+          throw generationError;
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= 2; // Exponential backoff
+      }
+    }
   } catch (error) {
-    console.error("LLM Error:", error);
+    console.error("LLM Final Error after retries:", error);
     return res.json({
       question: "I had a connection error with my brain. Could you repeat that?",
       isFinished: false

@@ -1,6 +1,7 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import { createServer } from "http";
 import connectDB, { isDbReady } from "./config/db.js";
@@ -21,6 +22,7 @@ initSocket(httpServer);
 
 await connectDB();
 
+app.use(morgan("dev")); // Add structured HTTP logging
 app.use(
   cors({
     origin: process.env.CLIENT_URL || "http://localhost:5173",
