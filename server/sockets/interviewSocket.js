@@ -7,7 +7,7 @@ let geminiModel = null;
 function getModel() {
   if (!geminiModel) {
     const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    geminiModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+    geminiModel = ai.getGenerativeModel({ model: "gemini-pro" });
     console.log("[Gemini] Model initialized successfully.");
   }
   return geminiModel;
@@ -20,6 +20,7 @@ export function registerInterviewHandlers(io, socket) {
     role: "frontend",
     isProcessing: false,
     errorCount: 0,
+    abortController: null,
   });
 
   socket.on("start_interview", async ({ role }) => {
@@ -34,23 +35,24 @@ export function registerInterviewHandlers(io, socket) {
     await generateAIResponse(socket, "Start the interview by introducing yourself briefly and asking the first technical question.");
   });
 
-  socket.on("user_speaking", () => {
-    // Interruption handling
-    const session = activeSessions.get(socket.id);
-    if (session && session.isProcessing) {
-      session.isProcessing = false;
-      console.log(`[Socket.io] Interrupted generation for ${socket.id}`);
-      socket.emit("ai_interrupted");
-    }
-  });
-
-  socket.on("user_stopped", async ({ transcript }) => {
+  // Simplified: only respond when user completely finishes speaking
+  socket.on("user_message", async ({ transcript }) => {
     if (!transcript || transcript.trim().length < 2) {
       console.log(`[Socket.io] Ignoring empty/short transcript from ${socket.id}`);
       return;
     }
     console.log(`[Socket.io] User ${socket.id} answered: "${transcript}"`);
     await generateAIResponse(socket, transcript);
+  });
+
+  socket.on("user_interrupted", () => {
+    const session = activeSessions.get(socket.id);
+    if (session && session.isProcessing && session.abortController) {
+      console.log(`[Socket.io] User ${socket.id} interrupted. Aborting AI generation.`);
+      session.abortController.abort();
+      session.abortController = null;
+      session.isProcessing = false;
+    }
   });
 
   socket.on("disconnect", () => {
@@ -70,6 +72,7 @@ async function generateAIResponse(socket, userMessage) {
   }
 
   session.isProcessing = true;
+  session.abortController = new AbortController();
 
   try {
     const model = getModel();
@@ -94,43 +97,62 @@ ${isInitialGreeting ? "Start by briefly introducing yourself and asking the firs
 
     console.log(`[Gemini] Sending prompt for ${socket.id}...`);
 
-    const result = await model.generateContentStream(prompt);
+    // Phase 5: Streaming AI Responses
+    const resultStream = await model.generateContentStream({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    }, {
+      signal: session.abortController.signal
+    });
 
     let fullResponse = "";
+    let buffer = "";
 
-    for await (const chunk of result.stream) {
-      if (!session.isProcessing) {
-        console.log(`[Gemini] Stream cancelled for ${socket.id}`);
-        break;
-      }
+    for await (const chunk of resultStream.stream) {
+      if (session.abortController?.signal?.aborted) break;
       
-      const token = chunk.text();
-      if (token) {
-        fullResponse += token;
-        socket.emit("ai_token", { token });
+      const text = chunk.text();
+      fullResponse += text;
+      buffer += text;
+      
+      // Buffer until we hit a sentence boundary (., !, ?)
+      const match = buffer.match(/[^.!?]+[.!?]+/g);
+      if (match) {
+        const sentence = match[0];
+        socket.emit("ai_response_chunk", { text: sentence.trim() });
+        buffer = buffer.slice(sentence.length);
       }
     }
 
-    if (session.isProcessing && fullResponse.trim().length > 0) {
+    // Flush any remaining partial sentence
+    if (buffer.trim() && !session.abortController?.signal?.aborted) {
+      socket.emit("ai_response_chunk", { text: buffer.trim() });
+    }
+
+    if (!session.abortController?.signal?.aborted) {
       session.history.push(`AI: ${fullResponse.trim()}`);
-      socket.emit("ai_finished", { fullText: fullResponse.trim() });
+      socket.emit("ai_response_end");
       session.errorCount = 0;
-      console.log(`[Gemini] Response complete for ${socket.id}: "${fullResponse.trim().substring(0, 80)}..."`);
+      console.log(`[Gemini] Stream complete for ${socket.id}`);
     }
 
   } catch (error) {
-    console.error(`[Gemini] Stream Error for ${socket.id}:`, error.message);
+    if (error.name === 'AbortError') {
+      console.log(`[Gemini] Generation aborted for ${socket.id} due to user interruption.`);
+      return;
+    }
+    
+    console.error(`[Gemini] Error for ${socket.id}:`, error.message);
     session.errorCount = (session.errorCount || 0) + 1;
     
     // Only emit fallback if we haven't already errored too many times
-    if (session.errorCount <= 2) {
+    if (session.errorCount <= 1) {
       const fallback = "I had a brief connection issue. Could you repeat what you just said?";
-      socket.emit("ai_token", { token: fallback });
-      socket.emit("ai_finished", { fullText: fallback, isError: true });
+      socket.emit("ai_response_chunk", { text: fallback, isError: true });
+      socket.emit("ai_response_end");
     } else {
-      // After 2 consecutive errors, just go back to listening silently
+      // After 1 consecutive error, just go back to listening silently to break loop
       console.error(`[Gemini] Too many consecutive errors for ${socket.id}, suppressing fallback.`);
-      socket.emit("ai_finished", { fullText: "", isError: true, silent: true });
+      socket.emit("ai_response_end", { silent: true });
     }
   } finally {
     session.isProcessing = false;

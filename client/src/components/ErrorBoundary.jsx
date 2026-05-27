@@ -22,9 +22,12 @@ export default class ErrorBoundary extends React.Component {
           <div className="flex max-w-md flex-col items-center rounded-2xl border border-red-900/50 bg-slate-900 p-8 text-center shadow-2xl">
             <AlertCircle className="mb-6 h-16 w-16 text-red-500" />
             <h2 className="mb-2 text-2xl font-bold text-white">Something went wrong</h2>
-            <p className="mb-8 text-slate-400">
+            <p className="mb-4 text-slate-400">
               The AI Interview environment encountered an unexpected error.
             </p>
+            <div className="mb-8 w-full max-w-lg overflow-auto rounded bg-red-950 p-4 text-left text-xs font-mono text-red-200">
+              <p className="font-bold">{this.state.error?.toString()}</p>
+            </div>
             <button
               onClick={() => window.location.reload()}
               className="flex items-center gap-2 rounded-full bg-red-600 px-6 py-3 font-semibold text-white shadow-lg transition-all hover:scale-105 hover:bg-red-700"

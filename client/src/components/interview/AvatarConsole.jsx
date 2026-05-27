@@ -1,25 +1,26 @@
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
+import { OrbitControls, ContactShadows } from "@react-three/drei";
 import { Camera, CameraOff, Mic, MicOff, PhoneOff, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import * as faceapi from "face-api.js";
 import { io } from "socket.io-client";
+
+import useInterviewStore, { INTERVIEW_STATES } from "../../store/useInterviewStore.js";
 import useSpeechRecognition from "../../hooks/useSpeechRecognition.js";
 import useTextToSpeech from "../../hooks/useTextToSpeech.js";
 import useVoiceActivityDetection from "../../hooks/useVoiceActivityDetection.js";
 import AvatarModel from "./AvatarModel.jsx";
-import { useInterview, INTERVIEW_STATES } from "../../context/InterviewContext.jsx";
+import DebugOverlay from "./DebugOverlay.jsx";
 
 const MODEL_URL = "https://unpkg.com/@vladmandic/face-api/model";
 const SOCKET_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function AvatarConsole({ session, onEnd }) {
   const { 
-    status, setStatus, 
-    currentQuestion, setQuestion, 
-    aiTranscript, setAiTranscript,
-    confidenceScore, setConfidenceScore 
-  } = useInterview();
+    status, setStatus,
+    setQuestion, setConfidenceScore,
+    setSocketConnected, setCandidateTranscript, isProcessingResponse
+  } = useInterviewStore();
 
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
@@ -28,160 +29,92 @@ export default function AvatarConsole({ session, onEnd }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const socketRef = useRef(null);
-  const mountedRef = useRef(true);
+  const lastSubmittedRef = useRef("");
+
+  const { speak, stop: stopSpeaking, isSpeaking } = useTextToSpeech();
+  const streamEndedRef = useRef(false);
   
-  // Use refs to avoid stale closures in socket/VAD callbacks
-  const statusRef = useRef(status);
-  const currentSentenceRef = useRef("");
-  const fullTranscriptRef = useRef("");
+  // ── Stable Base Loop Pipeline ──
 
-  // Keep statusRef always in sync
-  useEffect(() => {
-    statusRef.current = status;
-    console.log(`[STATE] → ${status}`);
-  }, [status]);
-
-  const { isListening, transcript, start: startListening, stop: stopListening, reset: resetTranscript } = useSpeechRecognition();
-  const { isSpeaking, queueSpeech, stop: stopSpeaking } = useTextToSpeech();
-  
-  // Keep transcript in a ref so VAD silence callback can always read the latest value
-  const transcriptRef = useRef(transcript);
-  useEffect(() => {
-    transcriptRef.current = transcript;
-  }, [transcript]);
-  
-  // ── VAD Callbacks (use refs to avoid stale closures) ──
-
-  const handleInterruption = useCallback(() => {
-    const s = statusRef.current;
-    if (s !== INTERVIEW_STATES.SPEAKING && s !== INTERVIEW_STATES.PROCESSING) return;
-    
-    console.log("[VAD] Interruption detected! Stopping AI speech.");
-    stopSpeaking();
-    currentSentenceRef.current = "";
-    if (socketRef.current) socketRef.current.emit("user_speaking");
-    
-    setStatus(INTERVIEW_STATES.INTERRUPTED);
-    setTimeout(() => {
-      if (mountedRef.current) setStatus(INTERVIEW_STATES.LISTENING);
-    }, 500);
-  }, [stopSpeaking, setStatus]);
-
-  const handleSilence = useCallback(() => {
-    const s = statusRef.current;
-    if (s !== INTERVIEW_STATES.LISTENING || !mountedRef.current) return;
-    
-    const finalTranscript = transcriptRef.current;
-    if (!finalTranscript || finalTranscript.trim().length < 2) {
-      console.warn("[VAD] Silence detected but transcript empty/short. Ignoring.");
+  const handleSpeechComplete = useCallback((finalTranscript) => {
+    if (useInterviewStore.getState().isProcessingResponse) {
+      console.warn("[ORCHESTRATOR] Ignored speech, already processing.");
       return;
     }
     
-    console.log(`[VAD] Silence auto-submit: "${finalTranscript}"`);
+    if (finalTranscript === lastSubmittedRef.current) {
+      console.warn("[ORCHESTRATOR] Ignored duplicate transcript.");
+      return;
+    }
+
+    console.log(`[ORCHESTRATOR] Triggering AI generation with: "${finalTranscript}"`);
+    lastSubmittedRef.current = finalTranscript;
     
-    setStatus(INTERVIEW_STATES.THINKING);
-    fullTranscriptRef.current = "";
+    setStatus(INTERVIEW_STATES.PROCESSING);
     
     if (socketRef.current) {
-      socketRef.current.emit("user_stopped", { transcript: finalTranscript });
+      socketRef.current.emit("user_message", { transcript: finalTranscript });
     }
-    resetTranscript();
-  }, [setStatus, resetTranscript]);
+  }, [setStatus]);
 
-  const { startVAD, stopVAD, setAISpeakingState, setListeningState } = useVoiceActivityDetection(handleInterruption, handleSilence);
+  const { start: startListening, stop: stopListening } = useSpeechRecognition(handleSpeechComplete);
 
-  // Sync VAD awareness with status changes
+  const handleInterruption = useCallback(() => {
+    const currentStatus = useInterviewStore.getState().status;
+    if (currentStatus === INTERVIEW_STATES.SPEAKING || currentStatus === INTERVIEW_STATES.PROCESSING) {
+      console.log("[INTERRUPTION] User interrupted AI!");
+      stopSpeaking();
+      setStatus(INTERVIEW_STATES.LISTENING);
+      if (socketRef.current) {
+        socketRef.current.emit("user_interrupted");
+      }
+    }
+  }, [stopSpeaking, setStatus]);
+
+  const { startVAD, stopVAD } = useVoiceActivityDetection(handleInterruption, null);
+
+  // ── Socket.io Setup ──
   useEffect(() => {
-    const speaking = status === INTERVIEW_STATES.SPEAKING || status === INTERVIEW_STATES.PROCESSING;
-    const listening = status === INTERVIEW_STATES.LISTENING;
-    setAISpeakingState(speaking);
-    setListeningState(listening);
-  }, [status, setAISpeakingState, setListeningState]);
-
-  // ── Socket.io Setup (runs once) ──
-  useEffect(() => {
-    mountedRef.current = true;
-    setStatus(INTERVIEW_STATES.STARTING);
     startCamera();
-    startVAD();
     loadModels();
+    startVAD();
 
-    console.log("[SOCKET] Connecting...");
+    console.log("[SOCKET] Connecting to backend...");
     const sock = io(SOCKET_URL, { transports: ["websocket"] });
     socketRef.current = sock;
 
     sock.on("connect", () => {
       console.log("[SOCKET] Connected:", sock.id);
+      setSocketConnected(true);
       sock.emit("start_interview", { role: session?.role || "frontend" });
     });
     
     sock.on("disconnect", () => {
       console.warn("[SOCKET] Disconnected!");
+      setSocketConnected(false);
     });
 
-    sock.on("ai_token", ({ token }) => {
-      if (!mountedRef.current) return;
+    sock.on("ai_response_chunk", ({ text, isError }) => {
+      console.log(`[SOCKET] Received AI response chunk:`, text);
+      setStatus(INTERVIEW_STATES.SPEAKING);
+      setQuestion(text);
       
-      const s = statusRef.current;
-      if (s !== INTERVIEW_STATES.PROCESSING && s !== INTERVIEW_STATES.SPEAKING && s !== INTERVIEW_STATES.THINKING) {
-        // First token received — transition to PROCESSING
-      }
-      setStatus(INTERVIEW_STATES.PROCESSING);
-      
-      fullTranscriptRef.current += token;
-      setAiTranscript(fullTranscriptRef.current);
-      currentSentenceRef.current += token;
-
-      // Sentence boundary detection: split on .?! followed by space or end-of-string
-      const sentenceEndMatch = currentSentenceRef.current.match(/([.?!])\s/);
-      if (sentenceEndMatch) {
-        const splitIndex = sentenceEndMatch.index + 1;
-        const completeSentence = currentSentenceRef.current.substring(0, splitIndex).trim();
-        currentSentenceRef.current = currentSentenceRef.current.substring(splitIndex).trim();
-        
-        if (completeSentence.length > 0) {
-          console.log(`[TTS] Speaking chunk: "${completeSentence.substring(0, 50)}..."`);
-          setStatus(INTERVIEW_STATES.SPEAKING);
-          queueSpeech(completeSentence);
-        }
-      }
+      speak(text, () => {
+        // Individual chunk completed
+      });
     });
 
-    sock.on("ai_finished", ({ fullText, isError, silent }) => {
-      if (!mountedRef.current) return;
-      console.log(`[SOCKET] ai_finished received. isError=${!!isError}, silent=${!!silent}`);
+    sock.on("ai_response_end", (options) => {
+      console.log(`[SOCKET] Stream ended.`);
+      streamEndedRef.current = true;
       
-      // If silent error, just go back to listening without speaking
-      if (silent) {
+      if (options?.silent) {
         setStatus(INTERVIEW_STATES.LISTENING);
-        return;
+        setCandidateTranscript("");
       }
-      
-      const remaining = currentSentenceRef.current.trim();
-      if (remaining.length > 0) {
-        setStatus(INTERVIEW_STATES.SPEAKING);
-        queueSpeech(remaining, () => {
-          if (mountedRef.current) {
-            console.log("[STATE] AI speech done → LISTENING");
-            if (fullText) setQuestion(fullText);
-            setStatus(INTERVIEW_STATES.LISTENING);
-          }
-        });
-        currentSentenceRef.current = "";
-      } else {
-        // Nothing left to speak, switch immediately
-        console.log("[STATE] AI response complete → LISTENING");
-        if (fullText) setQuestion(fullText);
-        setStatus(INTERVIEW_STATES.LISTENING);
-      }
-    });
-
-    sock.on("ai_interrupted", () => {
-      console.log("[SOCKET] Backend acknowledged interruption.");
     });
 
     return () => {
-      mountedRef.current = false;
       sock.disconnect();
       stopCamera();
       stopSpeaking();
@@ -190,17 +123,26 @@ export default function AvatarConsole({ session, onEnd }) {
     };
   }, []);
 
-  // ── Mic lifecycle: start/stop recognition based on status ──
+  useEffect(() => {
+    if (status === INTERVIEW_STATES.SPEAKING && streamEndedRef.current && !isSpeaking) {
+      console.log("[ORCHESTRATOR] Queue empty and stream ended. Returning to LISTENING.");
+      setCandidateTranscript("");
+      streamEndedRef.current = false;
+      setStatus(INTERVIEW_STATES.LISTENING);
+    }
+  }, [isSpeaking, status, setStatus, setCandidateTranscript]);
+
+  // ── Mic lifecycle ──
   useEffect(() => {
     if (status === INTERVIEW_STATES.LISTENING && isMicOn) {
       startListening();
+      streamEndedRef.current = false; // reset for next turn
     } else {
       stopListening();
     }
   }, [status, isMicOn]);
 
   // ── Camera & face-api ──
-
   async function loadModels() {
     try {
       await Promise.all([
@@ -208,41 +150,33 @@ export default function AvatarConsole({ session, onEnd }) {
         faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
         faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
       ]);
-      if (mountedRef.current) setModelsLoaded(true);
-    } catch (err) {
-      console.warn("Failed to load face-api models", err);
-    }
+      setModelsLoaded(true);
+    } catch (err) {}
   }
 
   async function startCamera() {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (!mountedRef.current) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        return;
-      }
       streamRef.current = mediaStream;
       if (videoRef.current) videoRef.current.srcObject = mediaStream;
     } catch (err) {
-      console.warn("Error accessing camera:", err);
-      if (mountedRef.current) setIsCameraOn(false);
+      setIsCameraOn(false);
     }
   }
 
   function stopCamera() {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach(track => track.stop());
     }
   }
 
   function handleVideoPlay() {
-    if (!modelsLoaded || !videoRef.current || !mountedRef.current) return;
+    if (!modelsLoaded || !videoRef.current) return;
     setInterval(async () => {
-      if (videoRef.current && !videoRef.current.paused && mountedRef.current) {
+      if (videoRef.current && !videoRef.current.paused) {
         try {
           const detections = await faceapi.detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
             .withFaceLandmarks().withFaceExpressions();
-          if (!mountedRef.current) return;
           if (detections.length > 0) {
             const expr = detections[0].expressions;
             let score = 100;
@@ -258,21 +192,10 @@ export default function AvatarConsole({ session, onEnd }) {
     }, 2000);
   }
 
-  const toggleMic = () => setIsMicOn(!isMicOn);
-  const toggleCamera = () => {
-    if (streamRef.current) {
-      const videoTrack = streamRef.current.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !isCameraOn;
-        setIsCameraOn(!isCameraOn);
-      }
-    }
-  };
-
-  // ── Render ──
-
   return (
     <div className="relative flex h-screen w-full flex-col bg-slate-950 overflow-hidden font-sans">
+      <DebugOverlay />
+      
       <div className="absolute inset-0 z-0 bg-gradient-to-b from-slate-900 to-black">
         <Canvas camera={{ position: [0, 1.5, 3.5], fov: 45 }}>
           <ambientLight intensity={0.5} />
@@ -286,20 +209,19 @@ export default function AvatarConsole({ session, onEnd }) {
         </Canvas>
       </div>
       
-      <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-6">
+      <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between p-6 pl-96">
         <h1 className="text-xl font-bold text-slate-200 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
           Real-Time Voice AI
         </h1>
         <div className="flex items-center gap-4">
           <span className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors flex items-center gap-2 ${
-            status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING ? "bg-purple-500/20 text-purple-400" :
+            status === INTERVIEW_STATES.PROCESSING ? "bg-purple-500/20 text-purple-400" :
             status === INTERVIEW_STATES.SPEAKING ? "bg-cyan-500/20 text-cyan-400" : 
             status === INTERVIEW_STATES.LISTENING ? "bg-emerald-500/20 text-emerald-400 animate-pulse" : 
-            status === INTERVIEW_STATES.INTERRUPTED ? "bg-red-500/20 text-red-400" : 
             "bg-slate-800 text-slate-400"
           }`}>
-            {(status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING) && <Loader2 className="w-3 h-3 animate-spin" />}
+            {status === INTERVIEW_STATES.PROCESSING && <Loader2 className="w-3 h-3 animate-spin" />}
             {status}
           </span>
         </div>
@@ -309,12 +231,10 @@ export default function AvatarConsole({ session, onEnd }) {
         <div className="w-full max-w-lg text-center">
           <p className={`text-xl font-bold transition-all duration-300 drop-shadow-md ${
             status === INTERVIEW_STATES.LISTENING ? "text-emerald-400 animate-pulse" : 
-            status === INTERVIEW_STATES.INTERRUPTED ? "text-red-400" :
-            (status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING) ? "text-cyan-400 italic" : "text-slate-400 opacity-0"
+            status === INTERVIEW_STATES.PROCESSING ? "text-cyan-400 italic" : "text-slate-400 opacity-0"
           }`}>
             {status === INTERVIEW_STATES.LISTENING ? "Listening..." : 
-             status === INTERVIEW_STATES.INTERRUPTED ? "Interrupting..." : 
-             (status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING) ? "AI is processing..." : ""}
+             status === INTERVIEW_STATES.PROCESSING ? "AI is processing..." : ""}
           </p>
         </div>
       </main>
@@ -329,12 +249,12 @@ export default function AvatarConsole({ session, onEnd }) {
       </div>
 
       <footer className="absolute bottom-0 left-0 right-0 z-20 flex h-24 items-center justify-center gap-6 bg-gradient-to-t from-slate-950 to-transparent px-6 pb-4">
-        <button onClick={toggleMic} className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 relative ${isMicOn ? "bg-slate-800 text-white hover:bg-slate-700 border border-slate-600" : "bg-red-500 text-white hover:bg-red-600"}`}>
+        <button onClick={() => setIsMicOn(!isMicOn)} className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 relative ${isMicOn ? "bg-slate-800 text-white hover:bg-slate-700 border border-slate-600" : "bg-red-500 text-white hover:bg-red-600"}`}>
           {isMicOn ? <Mic size={24} /> : <MicOff size={24} />}
           {isMicOn && status === INTERVIEW_STATES.LISTENING && <span className="absolute inset-0 rounded-full border-2 border-emerald-500 animate-ping opacity-75"></span>}
         </button>
 
-        <button onClick={toggleCamera} className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${isCameraOn ? "bg-slate-800 text-white hover:bg-slate-700 border border-slate-600" : "bg-red-500 text-white hover:bg-red-600"}`}>
+        <button onClick={() => setIsCameraOn(!isCameraOn)} className={`flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${isCameraOn ? "bg-slate-800 text-white hover:bg-slate-700 border border-slate-600" : "bg-red-500 text-white hover:bg-red-600"}`}>
           {isCameraOn ? <Camera size={24} /> : <CameraOff size={24} />}
         </button>
 

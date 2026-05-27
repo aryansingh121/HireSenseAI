@@ -1,105 +1,123 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import useInterviewStore, { INTERVIEW_STATES } from "../store/useInterviewStore.js";
 
-export default function useSpeechRecognition() {
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [error, setError] = useState("");
+export default function useSpeechRecognition(onSpeechComplete) {
   const recognitionRef = useRef(null);
-  const intendedListeningRef = useRef(false);
+  const silenceTimerRef = useRef(null);
+  const lastTranscriptRef = useRef("");
+  const restartAttemptsRef = useRef(0);
+  
+  const { setMicActive, setCandidateTranscript } = useInterviewStore();
 
   const supported = useMemo(
     () => Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
     []
   );
 
+  const start = useCallback(() => {
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.start();
+    } catch (err) {}
+  }, []);
+
+  const stop = useCallback(() => {
+    try {
+      if (recognitionRef.current) recognitionRef.current.stop();
+    } catch (err) {}
+    setMicActive(false);
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+  }, [setMicActive]);
+
   useEffect(() => {
     if (!supported) return;
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
 
     recognition.onstart = () => {
-      console.log("[MIC STATE] Speech recognition started natively.");
-      setIsListening(true);
+      console.log("[MIC] Started natively.");
+      setMicActive(true);
     };
 
     recognition.onresult = (event) => {
-      const text = Array.from(event.results)
+      const state = useInterviewStore.getState();
+      if (state.status !== INTERVIEW_STATES.LISTENING) return;
+
+      const results = Array.from(event.results);
+      
+      // Filter out low confidence noise
+      const validResults = results.filter(result => result[0].confidence > 0.3);
+      if (validResults.length === 0) return;
+
+      const text = validResults
         .map((result) => result[0].transcript)
         .join(" ");
-      console.log("[MIC STATE] Speech detected:", text);
-      setTranscript(text);
+        
+      setCandidateTranscript(text);
+      lastTranscriptRef.current = text;
+      
+      // Reset restart attempts since we successfully got audio
+      restartAttemptsRef.current = 0;
+
+      // Reset the silence timer every time we hear new words
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      
+      silenceTimerRef.current = setTimeout(() => {
+        // Only trigger if we are still strictly listening
+        const currentStatus = useInterviewStore.getState().status;
+        if (currentStatus === INTERVIEW_STATES.LISTENING) {
+          const finalTranscript = lastTranscriptRef.current;
+          if (finalTranscript && finalTranscript.trim().length > 2) {
+            console.log("[MIC] Silence timeout reached. Submitting:", finalTranscript);
+            if (onSpeechComplete) onSpeechComplete(finalTranscript);
+          }
+        }
+      }, 2000); // Wait 2 seconds after they stop talking
     };
 
     recognition.onerror = (event) => {
-      console.error("[MIC STATE] Speech recognition error:", event.error);
-      if (event.error === "no-speech") {
-        // Ignore no-speech errors, we rely on VAD
-      } else {
-        setError(event.error || "Speech recognition failed");
+      if (event.error !== "no-speech") {
+        console.error("[MIC] Error:", event.error);
       }
     };
 
     recognition.onend = () => {
-      console.log("[MIC STATE] Speech recognition ended natively.");
-      setIsListening(false);
-      // Failsafe auto-recovery: If we are SUPPOSED to be listening, immediately restart!
-      if (intendedListeningRef.current) {
-        console.log("[MIC STATE] Auto-recovering microphone stream...");
-        try {
-          recognition.start();
-        } catch (err) {
-          console.warn("[MIC STATE] Ignored recovery start error", err);
+      console.log("[MIC] Ended natively.");
+      setMicActive(false);
+      
+      // Auto-restart if we are still supposed to be listening
+      const currentStatus = useInterviewStore.getState().status;
+      if (currentStatus === INTERVIEW_STATES.LISTENING) {
+        restartAttemptsRef.current += 1;
+        
+        if (restartAttemptsRef.current > 5) {
+          console.error("[MIC] Max restart attempts reached. Halting auto-restart to prevent infinite loops.");
+          return;
         }
+
+        const backoffMs = Math.min(500 * restartAttemptsRef.current, 2000);
+        setTimeout(() => {
+          const freshStatus = useInterviewStore.getState().status;
+          if (freshStatus === INTERVIEW_STATES.LISTENING) {
+            try {
+              recognition.start();
+            } catch (err) {}
+          }
+        }, backoffMs);
       }
     };
 
     recognitionRef.current = recognition;
 
     return () => {
-      intendedListeningRef.current = false;
       recognition.stop();
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
-  }, [supported]);
+  }, [supported, setMicActive, setCandidateTranscript, onSpeechComplete]);
 
-  function start() {
-    setError("");
-    intendedListeningRef.current = true;
-    if (!recognitionRef.current) {
-      setError("Speech recognition is not available in this browser");
-      return;
-    }
-    if (isListening) return; // SAFEGUARD: Prevent duplicate starts
-    
-    console.log("[MIC STATE] Requesting mic start...");
-    try {
-      recognitionRef.current.start();
-    } catch (err) {
-      console.warn("[MIC STATE] Ignored SpeechRecognition start error:", err);
-    }
-  }
-
-  function stop() {
-    console.log("[MIC STATE] Requesting mic stop...");
-    intendedListeningRef.current = false;
-    try {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    } catch (err) {
-      console.warn("[MIC STATE] Ignored SpeechRecognition stop error:", err);
-    }
-    setIsListening(false);
-  }
-
-  function reset() {
-    setTranscript("");
-    setError("");
-  }
-
-  return { error, isListening, reset, start, stop, supported, transcript };
+  return { start, stop, supported };
 }

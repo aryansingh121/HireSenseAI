@@ -18,6 +18,16 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 const httpServer = createServer(app);
+
+// Production Hardening: Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: "Too many requests from this IP, please try again later."
+});
+
+app.use(express.json({ limit: "10kb" })); // Prevent large payload attacks
+app.use("/api/", limiter);
 initSocket(httpServer);
 
 await connectDB();

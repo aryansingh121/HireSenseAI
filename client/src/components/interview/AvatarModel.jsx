@@ -1,10 +1,10 @@
 import { useFrame } from '@react-three/fiber';
 import { useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useInterview, INTERVIEW_STATES } from "../../context/InterviewContext.jsx";
+import useInterviewStore, { INTERVIEW_STATES } from "../../store/useInterviewStore.js";
 
 export default function AvatarModel() {
-  const { status } = useInterview();
+  const status = useInterviewStore((state) => state.status);
   
   const headRef = useRef(null);
   const jawRef = useRef(null);
@@ -69,12 +69,12 @@ export default function AvatarModel() {
       let targetRotX = 0;
       let targetRotY = 0;
 
-      if (status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING) {
-        // Look up and to the right while thinking/generating stream
+      if (status === INTERVIEW_STATES.PROCESSING) {
+        // Look up and to the right while processing
         targetRotX = -0.2 + Math.sin(time * 0.5) * 0.05;
         targetRotY = 0.3 + Math.sin(time * 0.3) * 0.1;
       } 
-      else if (status === INTERVIEW_STATES.INTERRUPTED) {
+      else if (status === INTERVIEW_STATES.ERROR) {
         // Surprise recoil backwards and lock eyes
         targetRotX = -0.1;
         targetRotY = 0;
@@ -109,11 +109,11 @@ export default function AvatarModel() {
       {/* Glowing Eyes */}
       <mesh ref={leftEyeRef} position={[-0.35, 0.2, 0.76]}>
         <boxGeometry args={[0.4, 0.15, 0.1]} />
-        <meshStandardMaterial color={status === INTERVIEW_STATES.INTERRUPTED ? "#ef4444" : "#06b6d4"} emissive={status === INTERVIEW_STATES.INTERRUPTED ? "#ef4444" : "#06b6d4"} emissiveIntensity={(status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING || status === INTERVIEW_STATES.INTERRUPTED) ? 4 : 2} toneMapped={false} />
+        <meshStandardMaterial color={status === INTERVIEW_STATES.ERROR ? "#ef4444" : "#06b6d4"} emissive={status === INTERVIEW_STATES.ERROR ? "#ef4444" : "#06b6d4"} emissiveIntensity={(status === INTERVIEW_STATES.PROCESSING || status === INTERVIEW_STATES.ERROR) ? 4 : 2} toneMapped={false} />
       </mesh>
       <mesh ref={rightEyeRef} position={[0.35, 0.2, 0.76]}>
         <boxGeometry args={[0.4, 0.15, 0.1]} />
-        <meshStandardMaterial color={status === INTERVIEW_STATES.INTERRUPTED ? "#ef4444" : "#06b6d4"} emissive={status === INTERVIEW_STATES.INTERRUPTED ? "#ef4444" : "#06b6d4"} emissiveIntensity={(status === INTERVIEW_STATES.THINKING || status === INTERVIEW_STATES.PROCESSING || status === INTERVIEW_STATES.INTERRUPTED) ? 4 : 2} toneMapped={false} />
+        <meshStandardMaterial color={status === INTERVIEW_STATES.ERROR ? "#ef4444" : "#06b6d4"} emissive={status === INTERVIEW_STATES.ERROR ? "#ef4444" : "#06b6d4"} emissiveIntensity={(status === INTERVIEW_STATES.PROCESSING || status === INTERVIEW_STATES.ERROR) ? 4 : 2} toneMapped={false} />
       </mesh>
       
       {/* Moving Jaw */}
